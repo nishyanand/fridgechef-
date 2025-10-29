@@ -1,0 +1,10 @@
+### Upload and Analyze Image
+POST http://localhost:5000/api/upload/analyze
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="fridge.jpg"
+Content-Type: image/jpeg
+
+< ./fridge.jpg
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
