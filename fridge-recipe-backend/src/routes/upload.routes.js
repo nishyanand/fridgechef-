@@ -1,22 +1,19 @@
 import express from 'express';
-import { uploadAndAnalyze, uploadImage } from '../controllers/uploadController.js';
-import upload from '../middleware/upload.middleware.js';
+import { 
+  uploadAndAnalyze,
+  uploadImage, generateRecipesWithConfirmedIngredients 
+} from '../controllers/uploadController.js';
+import { uploadSingle, handleUploadError } from '../middleware/upload.middleware.js';
 
 const router = express.Router();
 
-// TEST ROUTE - Simple test to verify routes work
-router.get('/test', (req, res) => {
-  res.json({
-    success: true,
-    message: 'Upload routes are working! ✅',
-    timestamp: new Date().toISOString()
-  });
-});
+// Step 1: Upload and get AI suggestions
+router.post('/analyze', uploadSingle, handleUploadError, uploadAndAnalyze);
 
-// Upload and analyze (full flow)
-router.post('/analyze', upload.single('image'), uploadAndAnalyze);
+// Step 2: Generate recipes with confirmed ingredients
+router.post('/generate-recipes', generateRecipesWithConfirmedIngredients);
 
-// Upload image only
-router.post('/image', upload.single('image'), uploadImage);
+// Upload only (optional)
+router.post('/image', uploadSingle, handleUploadError, uploadImage);
 
 export default router;

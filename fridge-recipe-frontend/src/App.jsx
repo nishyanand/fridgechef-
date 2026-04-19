@@ -4,7 +4,6 @@ import { Camera, ChefHat, Sparkles, Clock, Heart, Upload, ArrowRight, X, Menu, M
 import { login as loginService, register as registerService } from './services/authService';
 import { uploadAndAnalyze } from './services/uploadService';
 
-
 // Floating Food Decorations
 const FloatingFood = () => {
   return (
@@ -86,6 +85,11 @@ function App() {
   const [selectedRecipe, setSelectedRecipe] = useState(null); // ← ADD THIS LINE
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  const [uploadStep, setUploadStep] = useState('upload');
+  const [uploadData, setUploadData] = useState(null);
+  const [confirmedIngredients, setConfirmedIngredients] = useState([]);
+  const [newIngredient, setNewIngredient] = useState('');
+
   // Check login status on mount
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -102,31 +106,40 @@ function App() {
     setAnalyzing(true);
     setIngredients([]);
     setRecipes([]);
+    setUploadStep('upload'); // Reset step
 
     try {
       console.log('📤 Uploading image to backend...');
       
-      // Import the upload service
-  
-      
-      // Call the real API
       const response = await uploadAndAnalyze(file);
       
       console.log('✅ Response received:', response);
 
       if (response.success) {
-        // Set real ingredients from AI
-        setIngredients(response.data.ingredients || []);
+        // Check if confirmation is needed (new flow)
+        if (response.data.needsConfirmation) {
+          console.log('📋 Confirmation needed - showing ingredient confirmation screen');
+          
+          // Store upload data
+          setUploadData(response.data);
+          
+          // Set suggested ingredients for confirmation
+          setConfirmedIngredients(response.data.suggestedIngredients || []);
+          
+          // Update image with Cloudinary URL
+          setImage(response.data.imageUrl);
+          
+          // Move to confirmation step
+          setUploadStep('confirm');
+        } else {
+          // Old flow (backward compatibility)
+          setIngredients(response.data.ingredients || []);
+          setRecipes(response.data.recipes || []);
+          setImage(response.data.imageUrl);
+          setUploadStep('recipes');
+        }
         
-        // Set real recipes from AI
-        setRecipes(response.data.recipes || []);
-        
-        // Update image with Cloudinary URL
-        setImage(response.data.imageUrl);
-        
-        console.log('🎉 Analysis complete!');
-        console.log('🥕 Ingredients:', response.data.ingredients);
-        console.log('🍳 Recipes:', response.data.recipes);
+        console.log('🎉 Upload complete!');
       } else {
         throw new Error(response.message || 'Analysis failed');
       }
@@ -138,10 +151,84 @@ function App() {
       setImage(null);
       setIngredients([]);
       setRecipes([]);
+      setUploadStep('upload');
     } finally {
       setAnalyzing(false);
     }
   }
+};
+
+// Remove ingredient from confirmation list
+const removeIngredient = (name) => {
+  setConfirmedIngredients(prev => prev.filter(ing => ing.name !== name));
+};
+
+// Add new ingredient to confirmation list
+const addIngredient = (e) => {
+  e.preventDefault();
+  if (newIngredient.trim()) {
+    setConfirmedIngredients(prev => [
+      ...prev,
+      { name: newIngredient.trim().toLowerCase(), confidence: 100 }
+    ]);
+    setNewIngredient('');
+  }
+};
+
+// Confirm ingredients and generate recipes
+const handleConfirmAndGenerate = async () => {
+  if (confirmedIngredients.length === 0) {
+    alert('Please select at least one ingredient');
+    return;
+  }
+
+  setAnalyzing(true);
+
+  try {
+    console.log('👨‍🍳 Generating recipes with confirmed ingredients...');
+    
+    // Import the service
+    const { generateRecipesWithConfirmedIngredients } = await import('./services/uploadService');
+    
+    const response = await generateRecipesWithConfirmedIngredients(
+      confirmedIngredients,
+      {
+        isVegetarian: false,
+        isVegan: false,
+        isGlutenFree: false,
+        isDairyFree: false,
+      },
+      uploadData.imageUrl,
+      uploadData.imageId
+    );
+
+    if (response.success) {
+      console.log('✅ Recipes generated!', response.data);
+      
+      // Set ingredients and recipes
+      setIngredients(response.data.ingredients);
+      setRecipes(response.data.recipes);
+      
+      // Move to recipes step
+      setUploadStep('recipes');
+    }
+  } catch (error) {
+    console.error('❌ Recipe generation error:', error);
+    alert('Failed to generate recipes. Please try again.');
+  } finally {
+    setAnalyzing(false);
+  }
+};
+
+// Reset upload flow
+const resetUpload = () => {
+  setUploadStep('upload');
+  setUploadData(null);
+  setConfirmedIngredients([]);
+  setNewIngredient('');
+  setImage(null);
+  setIngredients([]);
+  setRecipes([]);
 };
 
   // Navigation Component
@@ -521,122 +608,294 @@ function App() {
 
         <div className="max-w-5xl mx-auto px-4 md:px-6 py-8 md:py-12 relative z-10">
           {!image ? (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
-              <motion.div animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }} transition={{ duration: 3, repeat: Infinity }}>
-                <Camera className="w-16 h-16 md:w-20 md:h-20 mx-auto text-pink-500 mb-6" />
-              </motion.div>
-              <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Snap Your Fridge</h2>
-              <p className="text-base md:text-lg text-gray-600 mb-8 md:mb-12">AI will analyze your ingredients in seconds ✨</p>
-              <FileUpload onFileSelect={handleFileSelect} />
-            </motion.div>
-          ) : (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 md:space-y-8">
-              <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
-                <img src={image} alt="Fridge" className="w-full h-64 md:h-96 object-cover" />
-              </div>
+  <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="text-center">
+    <motion.div animate={{ scale: [1, 1.1, 1], rotate: [0, 5, -5, 0] }} transition={{ duration: 3, repeat: Infinity }}>
+      <Camera className="w-16 h-16 md:w-20 md:h-20 mx-auto text-pink-500 mb-6" />
+    </motion.div>
+    <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">Snap Your Fridge</h2>
+    <p className="text-base md:text-lg text-gray-600 mb-8 md:mb-12">AI will analyze your ingredients in seconds ✨</p>
+    <FileUpload onFileSelect={handleFileSelect} />
+  </motion.div>
+) : (
+  <>
+    {/* Ingredient Confirmation Modal - ADD THIS */}
+    {uploadStep === 'confirm' && uploadData && !analyzing && (
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+      >
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="bg-white rounded-3xl max-w-4xl w-full my-8 shadow-2xl"
+        >
+          {/* Header */}
+          <div className="sticky top-0 bg-gradient-to-r from-pink-500 to-purple-600 text-white px-6 py-4 rounded-t-3xl flex justify-between items-center z-10">
+            <div>
+              <h2 className="text-2xl font-bold">Review Ingredients</h2>
+              <p className="text-pink-100 text-sm">Remove wrong items or add missing ones</p>
+            </div>
+            <button
+              onClick={resetUpload}
+              className="p-2 hover:bg-white/20 rounded-full transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </div>
 
-              {analyzing ? (
-                <div className="text-center py-12 md:py-16 bg-white/80 backdrop-blur-md rounded-3xl">
-                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 2, repeat: Infinity, ease: "linear" }} className="inline-block">
-                    <Sparkles className="w-12 h-12 md:w-16 md:h-16 text-pink-500" />
-                  </motion.div>
-                  <p className="text-xl md:text-2xl font-bold text-gray-700 mt-6">Analyzing ingredients...</p>
-                  <p className="text-sm md:text-base text-gray-500 mt-2">AI is working its magic ✨</p>
-                </div>
-              ) : (
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-6 md:space-y-8">
-                  <div className="bg-white/80 backdrop-blur-md rounded-3xl shadow-xl p-6 md:p-8">
-                    <div className="flex items-center gap-3 mb-6">
-                      <Sparkles className="w-6 h-6 md:w-7 md:h-7 text-amber-500" />
-                      <h3 className="text-2xl md:text-3xl font-bold text-gray-900">Detected Ingredients</h3>
-                    </div>
-                    <div className="flex flex-wrap gap-2 md:gap-3">
-                      {ingredients.map((ingredient, i) => (
-                        <motion.span 
-                          key={i} 
-                          initial={{ scale: 0 }} 
-                          animate={{ scale: 1 }} 
-                          transition={{ delay: i * 0.1 }} 
-                          className="bg-gradient-to-r from-pink-100 to-pink-200 text-pink-700 px-4 md:px-5 py-2 md:py-3 rounded-full font-semibold shadow-md text-sm md:text-base"
+          <div className="p-6 max-h-[70vh] overflow-y-auto">
+            {/* Fridge Image */}
+            <div className="relative rounded-2xl overflow-hidden mb-6 shadow-lg">
+              <img
+                src={image}
+                alt="Your fridge"
+                className="w-full h-64 object-cover"
+              />
+            </div>
+
+            {/* Instructions */}
+            <div className="mb-6 bg-gradient-to-r from-blue-50 to-purple-50 border-2 border-blue-200 rounded-xl p-4">
+              <p className="text-sm text-blue-900 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-blue-600" />
+                <span className="font-medium">AI detected these ingredients. Review and edit before generating recipes.</span>
+              </p>
+            </div>
+
+            {/* Detected Ingredients */}
+            <div className="mb-6">
+              <h3 className="text-lg font-bold mb-3 text-gray-800 flex items-center gap-2">
+                <ChefHat className="w-5 h-5 text-pink-600" />
+                Detected Ingredients ({confirmedIngredients.length})
+              </h3>
+              <div className="flex flex-wrap gap-2 p-4 bg-gray-50 rounded-xl min-h-[100px] border-2 border-dashed border-gray-300">
+                {confirmedIngredients.length > 0 ? (
+                  confirmedIngredients.map((item) => (
+                    <motion.div
+                      key={item.name}
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      exit={{ scale: 0 }}
+                      className="flex items-center gap-2 bg-gradient-to-r from-pink-100 to-purple-100 text-pink-700 px-4 py-2 rounded-full border-2 border-pink-300 shadow-sm"
+                    >
+                      <span className="font-semibold">
+                        ✓ {item.name}
+                      </span>
+                      <span className="text-xs text-pink-600">
+                        {item.confidence}%
+                      </span>
+                      <button
+                        onClick={() => removeIngredient(item.name)}
+                        className="hover:bg-pink-200 rounded-full p-1 transition-colors"
                       >
-                        ✓ {ingredient.name || ingredient} {ingredient.confidence && `(${ingredient.confidence}%)`}
-                        </motion.span>
-                      ))}
-                  </div>
-                  </div>
+                        <X className="w-4 h-4" />
+                      </button>
+                    </motion.div>
+                  ))
+                ) : (
+                  <p className="text-gray-400 text-center w-full py-4">
+                    No ingredients selected. Add some below!
+                  </p>
+                )}
+              </div>
+            </div>
 
-                  <div className="bg-white/80 backdrop-blur-md rounded-3xl shadow-xl p-6 md:p-8">
-                    <div className="flex items-center gap-3 mb-6 md:mb-8">
-                      <ChefHat className="w-6 h-6 md:w-7 md:h-7 text-pink-500" />
-                      <h3 className="text-2xl md:text-3xl font-bold text-gray-900">Recipe Suggestions</h3>
+            {/* Add Ingredient Form */}
+            <form onSubmit={addIngredient} className="mb-6">
+              <h3 className="text-lg font-bold mb-3 text-gray-800 flex items-center gap-2">
+                <Flame className="w-5 h-5 text-orange-600" />
+                Add Missing Ingredient
+              </h3>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={newIngredient}
+                  onChange={(e) => setNewIngredient(e.target.value)}
+                  placeholder="e.g., tomatoes, chicken, eggs..."
+                  className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent text-lg"
+                />
+                <button
+                  type="submit"
+                  className="px-8 py-3 bg-gradient-to-r from-pink-600 to-purple-600 text-white rounded-xl hover:from-pink-700 hover:to-purple-700 transition-all font-bold shadow-lg hover:shadow-xl transform hover:scale-105"
+                >
+                  Add
+                </button>
+              </div>
+            </form>
+
+            {/* Confirm Button */}
+            <button
+              onClick={handleConfirmAndGenerate}
+              disabled={analyzing || confirmedIngredients.length === 0}
+              className="w-full py-4 bg-gradient-to-r from-pink-600 via-purple-600 to-indigo-600 text-white rounded-xl font-bold text-lg hover:from-pink-700 hover:via-purple-700 hover:to-indigo-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-lg hover:shadow-xl transform hover:scale-[1.02]"
+            >
+              {analyzing ? (
+                <>
+                  <div className="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Generating Your Recipes...</span>
+                </>
+              ) : (
+                <>
+                  <ChefHat className="w-6 h-6" />
+                  <span>Generate Recipes ({confirmedIngredients.length} ingredients)</span>
+                  <ArrowRight className="w-6 h-6" />
+                </>
+              )}
+            </button>
+          </div>
+        </motion.div>
+      </motion.div>
+    )}
+
+    {/* Rest of your existing code - Image, analyzing, results */}
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6 md:space-y-8">
+      <div className="bg-white rounded-3xl shadow-2xl overflow-hidden">
+        <img src={image} alt="Fridge" className="w-full h-64 md:h-96 object-cover" />
+      </div>
+
+      {analyzing ? (
+  <div className="text-center py-12 md:py-16 bg-white/80 backdrop-blur-md rounded-3xl">
+    <motion.div 
+      animate={{ rotate: 360 }} 
+      transition={{ duration: 2, repeat: Infinity, ease: "linear" }} 
+      className="inline-block"
+    >
+      <Sparkles className="w-12 h-12 md:w-16 md:h-16 text-pink-500" />
+    </motion.div>
+    <p className="text-xl md:text-2xl font-bold text-gray-700 mt-6">
+      {uploadStep === 'confirm' ? 'Generating recipes...' : 'Analyzing ingredients...'}
+    </p>
+    <p className="text-sm md:text-base text-gray-500 mt-2">AI is working its magic ✨</p>
+  </div>
+) : (
+  uploadStep === 'recipes' && (
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }} 
+      animate={{ opacity: 1, y: 0 }} 
+      className="space-y-6 md:space-y-8"
+    >
+      {/* Detected Ingredients Section */}
+      <div className="bg-white/80 backdrop-blur-md rounded-3xl shadow-xl p-6 md:p-8">
+        <div className="flex items-center gap-3 mb-6">
+          <Sparkles className="w-6 h-6 md:w-7 md:h-7 text-amber-500" />
+          <h3 className="text-2xl md:text-3xl font-bold text-gray-900">Detected Ingredients</h3>
+        </div>
+        <div className="flex flex-wrap gap-2 md:gap-3">
+          {ingredients.map((ingredient, i) => (
+            <motion.span 
+              key={i} 
+              initial={{ scale: 0 }} 
+              animate={{ scale: 1 }} 
+              transition={{ delay: i * 0.1 }} 
+              className="bg-gradient-to-r from-pink-100 to-pink-200 text-pink-700 px-4 md:px-5 py-2 md:py-3 rounded-full font-semibold shadow-md text-sm md:text-base"
+            >
+              ✓ {ingredient.name || ingredient} {ingredient.confidence && `(${ingredient.confidence}%)`}
+            </motion.span>
+          ))}
+        </div>
+      </div>
+
+      {/* Recipe Suggestions Section */}
+      <div className="bg-white/80 backdrop-blur-md rounded-3xl shadow-xl p-6 md:p-8">
+        <div className="flex items-center gap-3 mb-6 md:mb-8">
+          <ChefHat className="w-6 h-6 md:w-7 md:h-7 text-pink-500" />
+          <h3 className="text-2xl md:text-3xl font-bold text-gray-900">Recipe Suggestions</h3>
+        </div>
+        <div className="grid md:grid-cols-3 gap-4 md:gap-6">
+          {recipes.map((recipe, i) => {
+            // Get missing ingredients (ingredients where available is false)
+            const missingIngredients = recipe.ingredients?.filter(ing => !ing.available) || [];
+
+            return (
+              <CardContainer key={i} className="w-full">
+                <motion.div 
+                  initial={{ opacity: 0, y: 20 }} 
+                  animate={{ opacity: 1, y: 0 }} 
+                  transition={{ delay: i * 0.2 }} 
+                  className="bg-gradient-to-br from-white to-pink-50 rounded-2xl p-5 md:p-6 shadow-lg hover:shadow-2xl transition-all duration-300 border-2 border-transparent hover:border-pink-300 cursor-pointer"
+                  onClick={() => setSelectedRecipe(recipe)}
+                  style={{ transformStyle: "preserve-3d" }}
+                >
+                  <div style={{ transform: "translateZ(50px)" }}>
+                    {/* Recipe emoji or placeholder */}
+                    <div className="text-5xl md:text-6xl mb-4 text-center">
+                      {recipe.emoji || '🍳'}
                     </div>
-                    <div className="grid md:grid-cols-3 gap-4 md:gap-6">
-                      {recipes.map((recipe, i) => {
-                        // Get missing ingredients (ingredients where available is false)
-                        const missingIngredients = recipe.ingredients?.filter(ing => !ing.available) || [];
-  
-                        return (
-                          <CardContainer key={i} className="w-full">
-                            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.2 }} className="bg-gradient-to-br from-white to-pink-50 rounded-2xl p-5 md:p-6 shadow-lg hover:shadow-2xl transition-all duration-300 border-2 border-transparent hover:border-pink-300" style={{ transformStyle: "preserve-3d" }}>
-                              <div style={{ transform: "translateZ(50px)" }}>
-                                {/* Recipe emoji or placeholder */}
-                                <div className="text-5xl md:text-6xl mb-4 text-center">
-                                  {recipe.emoji || '🍳'}
-                                </div>
-          
-                                {/* Recipe name */}
-                                <h4 className="font-bold text-lg md:text-xl text-gray-900 mb-3">{recipe.name}</h4>
-          
-                                {/* Cooking time and difficulty */}
-                                <div className="flex items-center justify-between text-xs md:text-sm text-gray-600 mb-4">
-                                  <span className="flex items-center gap-1">
-                                    <Clock className="w-4 h-4" />
-                                    {recipe.cookingTime ? `${recipe.cookingTime} min` : recipe.time || '15 min'}
-                                  </span>
-                                  <span className="bg-pink-100 text-pink-700 px-2 md:px-3 py-1 rounded-full text-xs font-bold">
-                                    {recipe.difficulty || 'Easy'}
-                                  </span>
-                                </div>
-          
-                                {/* Servings */}
-                                {recipe.servings && (
-                                  <p className="text-xs text-gray-500 mb-3">Serves: {recipe.servings}</p>
-                                )}
-          
-                                {/* Missing ingredients */}
-                                {missingIngredients.length > 0 && (
-                                  <div className="mb-4 p-2 md:p-3 bg-amber-50 rounded-lg">
-                                    <p className="text-xs text-amber-700 font-medium mb-1">Missing:</p>
-                                    <p className="text-xs text-amber-600">
-                                      {missingIngredients.map(ing => ing.name).join(', ')}
-                                    </p>
-                                  </div>
-                                )}
-          
-                                {/* Calories */}
-                                {recipe.calories && (
-                                  <div className="mb-4 p-2 bg-green-50 rounded-lg">
-                                    <p className="text-xs text-green-700 font-medium">
-                                      🔥 {recipe.calories} calories
-                                    </p>
-                                  </div>
-                                )}
-          
-                                <motion.button className="w-full bg-gradient-to-r from-pink-500 to-pink-600 text-white py-2 md:py-3 rounded-xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm md:text-base">
-                                View Recipe
-                                <ArrowRight className="w-4 h-4" />
-                                </motion.button>
-                              </div>
-                            </motion.div>
-                          </CardContainer>
-                        );
-                      })}
+
+                    {/* Recipe name */}
+                    <h4 className="font-bold text-lg md:text-xl text-gray-900 mb-3">{recipe.name}</h4>
+
+                    {/* Cooking time and difficulty */}
+                    <div className="flex items-center justify-between text-xs md:text-sm text-gray-600 mb-4">
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-4 h-4" />
+                        {recipe.cookingTime ? `${recipe.cookingTime} min` : recipe.time || '15 min'}
+                      </span>
+                      <span className="bg-pink-100 text-pink-700 px-2 md:px-3 py-1 rounded-full text-xs font-bold">
+                        {recipe.difficulty || 'Easy'}
+                      </span>
                     </div>
+
+                    {/* Servings */}
+                    {recipe.servings && (
+                      <p className="text-xs text-gray-500 mb-3">Serves: {recipe.servings}</p>
+                    )}
+
+                    {/* Missing ingredients */}
+                    {missingIngredients.length > 0 && (
+                      <div className="mb-4 p-2 md:p-3 bg-amber-50 rounded-lg">
+                      <p className="text-xs text-amber-700 font-medium mb-1">Missing:</p>
+                      <p className="text-xs text-amber-600">
+                        {missingIngredients.map(ing => 
+                          typeof ing === 'string' ? ing : (ing.name || 'Unknown')
+                        ).join(', ')}
+                      </p>
+                      </div>
+                    )}
+
+                    {/* Calories */}
+                    {recipe.calories && (
+                      <div className="mb-4 p-2 bg-green-50 rounded-lg">
+                        <p className="text-xs text-green-700 font-medium">
+                          🔥 {recipe.calories} calories
+                        </p>
+                      </div>
+                    )}
+
+                    <motion.button 
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="w-full bg-gradient-to-r from-pink-500 to-pink-600 text-white py-2 md:py-3 rounded-xl font-bold hover:shadow-lg transition-all flex items-center justify-center gap-2 text-sm md:text-base"
+                    >
+                      View Recipe
+                      <ArrowRight className="w-4 h-4" />
+                    </motion.button>
                   </div>
                 </motion.div>
-              )}
-            </motion.div>
-          )}
+              </CardContainer>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Try Again Button */}
+      <div className="text-center">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={resetUpload}
+          className="bg-gradient-to-r from-gray-100 to-gray-200 hover:from-gray-200 hover:to-gray-300 text-gray-800 px-8 py-3 rounded-xl font-bold transition-all shadow-md hover:shadow-lg flex items-center gap-2 mx-auto"
+        >
+          <Camera className="w-5 h-5" />
+          Try Another Photo
+        </motion.button>
+      </div>
+    </motion.div>
+  )
+)}
+    </motion.div>
+  </>
+)}
         </div>
       </div>
     );

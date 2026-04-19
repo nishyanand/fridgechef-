@@ -26,6 +26,34 @@ export const uploadAndAnalyze = async (imageFile, onProgress) => {
   return response.data;
 };
 
+// NEW: Generate recipes with confirmed ingredients
+export const generateRecipesWithConfirmedIngredients = async (
+  confirmedIngredients,
+  dietaryPreferences,
+  imageUrl,
+  imageId
+) => {
+  const token = localStorage.getItem('token');
+
+  const response = await axios.post(
+    `${API_URL}/upload/generate-recipes`,
+    {
+      confirmedIngredients,
+      dietaryPreferences,
+      imageUrl,
+      imageId,
+    },
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+    }
+  );
+
+  return response.data;
+};
+
 export const uploadImage = async (imageFile) => {
   const formData = new FormData();
   formData.append('image', imageFile);
