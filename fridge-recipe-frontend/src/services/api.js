@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Base API URL
-const API_URL = 'http://localhost:5000/api';
+const API_URL = 'https://fridgechef-backend-3ylm.onrender.com/api';
 
 // Create axios instance
 const api = axios.create({
