@@ -14,7 +14,10 @@ const app = express();
 
 // Enable CORS (allow frontend to call backend)
 app.use(cors({
-  origin: "*",
+  origin: [
+    "http://localhost:5173",
+    "https://fridgechef-zeta.vercel.app"
+  ],
   credentials: true,
 }));
 
